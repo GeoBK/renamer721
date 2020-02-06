@@ -1,20 +1,270 @@
 #include <inttypes.h>
+#include <assert.h>
+
+class FreeList{
+    uint64_t * free_list;
+    uint64_t head;
+    uint64_t tail;
+    uint64_t fl_size;
+	uint64_t lrf_size;
+    bool     is_empty;
+    public:
+	FreeList(uint64_t fl_size,uint64_t lrf_size){
+        free_list = new uint64_t[fl_size];
+		uint64_t free_prf=lrf_size-1;
+		for(int i=0;i<fl_size;i++)
+		{
+			free_list[i]=free_prf++;
+		}
+		this->fl_size=fl_size;
+		this->lrf_size=lrf_size;
+		head=0;
+		tail=fl_size-1;
+        is_empty = false;
+    }
+	uint64_t get_head(){
+		return head;
+	}
+    uint64_t get_freeregisters(){
+        if(head-tail<0)
+        {
+            return tail-head;
+        }
+        else if(head-tail>0)
+        {
+            return fl_size-(head-tail);
+        }
+        else
+        {
+            if(is_empty)
+            {
+                return fl_size;
+            }
+            else
+            {
+                return 0;
+            }
+            
+        }        
+    }
+	void sethead(uint64_t index){
+		head=index;
+	}
+	void push(uint64_t free_reg)
+	{
+		assert(head!=tail || (head==tail && is_empty));
+		free_list[tail] = free_reg;
+		tail++;
+		if(tail==fl_size)
+		{
+			tail=0;
+		}
+		is_empty=false;
+	}
+	void reset(){
+		is_empty=false;
+		uint64_t free_prf=lrf_size-1;
+		for(int i=0;i<fl_size;i++)
+		{
+			free_list[i]=free_prf++;
+		}
+	}
+	uint64_t pop(){
+		assert(!is_empty);
+		uint64_t free_reg=free_list[head++];
+		if(head==fl_size)
+		{
+			head=0;
+		}
+		if(head==tail)
+		{
+			is_empty=true;
+		}
+		return free_reg;
+	}
+};
+
+struct ALEntry{
+    bool            has_destination;
+    uint64_t        lrn;                    //logical register number
+    uint64_t        prn;                    //physical register number
+    bool            is_completed;
+    bool            has_exception;          //true if exception has occured
+    bool            has_load_violation;          //true if load occurs before conflicting store
+    bool            is_branch_mispredict;
+    bool            is_value_mispredict;
+    bool            is_load;
+    bool            is_store;
+    bool            is_branch;
+    bool            is_amo;
+    bool            is_csr;
+    uint64_t        pc;
+
+};
+
+class ActiveList{
+    
+    ALEntry * active_list;
+    uint64_t head;
+    uint64_t tail;
+	uint64_t al_size;
+    bool     is_empty;
+	public:
+	ActiveList(uint64_t al_size){
+        active_list = new ALEntry[al_size];
+		this->al_size=al_size;
+		head=0;
+		tail=0;
+        is_empty=true;
+    }
+    ~ActiveList(){
+        delete[] active_list;
+    }
+	uint64_t get_free_entries(){
+        if(head-tail<0)
+        {
+            return head-tail+al_size;
+        }
+        else if(head-tail>0)
+        {
+            return head-tail;
+        }
+        else
+        {
+            if(is_empty)
+            {
+                return al_size;
+            }
+            else
+            {
+                return 0;
+            }
+            
+        }        
+    }
+	bool is_full(){
+		if(head == tail && !is_empty)
+		{
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	uint64_t get_head()
+	{
+		return head;
+	}
+
+	uint64_t get_tail()
+	{
+		return tail;
+	}
+	uint64_t insert(ALEntry rec)
+	{
+		uint64_t curr = tail;
+		is_empty=false;
+		active_list[tail++]=rec;
+		if(tail==al_size)
+		{
+			tail=0;
+		}
+		return curr;
+	}
+	void set_complete(uint64_t index)
+	{
+		active_list[index].is_completed=true;
+	}
+
+	void settail(uint64_t index)
+	{
+		tail = index;
+	}
+
+	bool is_not_empty(){
+		return !is_empty;
+	}
+	ALEntry peek(){
+		return active_list[head];
+	}
+	ALEntry pop(){
+		uint64_t curr = head++;
+		if(head == al_size)
+		{
+			head=0;
+		}		
+		if(head==tail)
+		{
+			is_empty=true;
+		}
+		return active_list[curr];
+	}
+	void clear(){
+		head=tail=0;
+		is_empty=true;
+	}
+	void set_exception(uint64_t index)
+	{
+		active_list[index].has_exception=true;
+	}
+	void set_load_violation(uint64_t index)
+	{
+		active_list[index].has_load_violation=true;
+	}
+	void set_branch_misprediction(uint64_t index)
+	{
+		active_list[index].is_branch_mispredict=true;
+	}
+	void set_value_misprediction(uint64_t index)
+	{
+		active_list[index].is_value_mispredict=true;
+	}
+	bool get_exception(uint64_t AL_index)
+	{
+		return active_list[AL_index].has_exception;
+	}
+};
+
+class Checkpoint{
+	public:
+    Checkpoint(uint64_t lrf_size){
+        smt = new uint64_t[lrf_size];
+    }
+    ~Checkpoint(){
+        delete [] smt;
+    }	
+    uint64_t * smt;
+    uint64_t fl_head_checkpoint;
+    uint64_t GBM_checkpoint;    
+};
+
+
 
 class renamer {
 private:
 	/////////////////////////////////////////////////////////////////////
 	// Put private class variables here.
 	/////////////////////////////////////////////////////////////////////
+    uint64_t al_size;
+    uint64_t prf_size;
+    uint64_t lrf_size;
+    uint64_t fl_size;
 
+    uint64_t unresolved_branch_limit;
 	/////////////////////////////////////////////////////////////////////
 	// Structure 1: Rename Map Table
 	// Entry contains: physical register mapping
 	/////////////////////////////////////////////////////////////////////
 
+    uint64_t * rmt;
+
 	/////////////////////////////////////////////////////////////////////
 	// Structure 2: Architectural Map Table
 	// Entry contains: physical register mapping
 	/////////////////////////////////////////////////////////////////////
+    uint64_t * amt;
 
 	/////////////////////////////////////////////////////////////////////
 	// Structure 3: Free List
@@ -25,6 +275,8 @@ private:
 	// * Structure includes head, tail, and possibly other variables
 	//   depending on your implementation.
 	/////////////////////////////////////////////////////////////////////
+    FreeList* freelist;
+
 
 	/////////////////////////////////////////////////////////////////////
 	// Structure 4: Active List
@@ -65,6 +317,8 @@ private:
 	// * Structure includes head, tail, and possibly other variables
 	//   depending on your implementation.
 	/////////////////////////////////////////////////////////////////////
+    ActiveList* activelist;
+
 
 	/////////////////////////////////////////////////////////////////////
 	// Structure 5: Physical Register File
@@ -74,11 +328,13 @@ private:
 	// * The value must be of the following type: uint64_t
 	//   (#include <inttypes.h>, already at top of this file)
 	/////////////////////////////////////////////////////////////////////
+    uint64_t* prf;
 
 	/////////////////////////////////////////////////////////////////////
 	// Structure 6: Physical Register File Ready Bit Array
 	// Entry contains: ready bit
 	/////////////////////////////////////////////////////////////////////
+    bool * prf_bit_array;
 
 	/////////////////////////////////////////////////////////////////////
 	// Structure 7: Global Branch Mask (GBM)
@@ -127,11 +383,13 @@ private:
 	// 2. checkpointed Free List head index
 	// 3. checkpointed GBM
 	/////////////////////////////////////////////////////////////////////
-
+    
+    Checkpoint **checkpoints;
 	/////////////////////////////////////////////////////////////////////
 	// Private functions.
 	// e.g., a generic function to copy state from one map to another.
 	/////////////////////////////////////////////////////////////////////
+	void copy_map(uint64_t* source, uint64_t* destination);
 
 public:
 	////////////////////////////////////////
