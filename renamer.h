@@ -1,5 +1,6 @@
 #include <inttypes.h>
 #include <assert.h>
+#include <stdio.h>
 
 class FreeList{
     uint64_t * free_list;
@@ -85,9 +86,7 @@ class FreeList{
 };
 
 struct ALEntry{
-    bool            has_destination;
-    uint64_t        lrn;                    //logical register number
-    uint64_t        prn;                    //physical register number
+    bool            has_destination;    
     bool            is_completed;
     bool            has_exception;          //true if exception has occured
     bool            has_load_violation;          //true if load occurs before conflicting store
@@ -98,6 +97,8 @@ struct ALEntry{
     bool            is_branch;
     bool            is_amo;
     bool            is_csr;
+	uint64_t        lrn;                    //logical register number
+    uint64_t        prn;                    //physical register number
     uint64_t        pc;
 
 };
@@ -164,6 +165,7 @@ class ActiveList{
 	}
 	uint64_t insert(ALEntry rec)
 	{
+		assert(head!=tail || (head==tail && is_empty));
 		uint64_t curr = tail;
 		is_empty=false;
 		active_list[tail++]=rec;
@@ -190,6 +192,7 @@ class ActiveList{
 		return active_list[head];
 	}
 	ALEntry pop(){
+		assert(!is_empty);
 		uint64_t curr = head++;
 		if(head == al_size)
 		{

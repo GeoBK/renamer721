@@ -19,19 +19,21 @@ renamer::renamer(uint64_t n_log_regs, uint64_t n_phys_regs, uint64_t n_branches)
     fl_size = prf_size - lrf_size;
     rmt = new uint64_t[n_log_regs];
     amt = new uint64_t[n_log_regs];
+    prf = new uint64_t[prf_size];
+    prf_bit_array = new bool[prf_size];
     for(int i=0;i<lrf_size;i++)
     {
         rmt[i]=i;
         amt[i]=i;
+        prf_bit_array[i]=1;
     }
     freelist = new FreeList(fl_size,lrf_size);
     activelist = new ActiveList(al_size);
-    prf = new uint64_t[prf_size];
-    prf_bit_array = new bool[prf_size];
     checkpoints = new Checkpoint*[unresolved_branch_limit];
     for(int i =0;i<unresolved_branch_limit;i++){
         checkpoints[i]=new Checkpoint(lrf_size);
     }
+    // printf("Done with construction of renamer!\n");
 }
 
 renamer::~renamer()
@@ -61,19 +63,25 @@ bool renamer::stall_reg(uint64_t bundle_dst)
 
 bool renamer::stall_branch(uint64_t bundle_branch)
 {
-    uint64_t free_branches; 
+    uint64_t free_branches=0; 
+    // printf("Entering stall_branch\n");
+    // printf("bundle_branches: %"PRIu64"\n",bundle_branch);
+    // printf("GBM: %016llX\n",GBM);
+    
     for(uint64_t i=0;i<unresolved_branch_limit;i++)
     {
         uint64_t mask = 1<<i;
-        if(mask & GBM == 0)
+        if((mask & GBM) == 0)
         {
             free_branches++;
             if(free_branches>=bundle_branch)
             {
+                // printf("Done with stall_branch!!\n");
                 return false;
             }            
         }
     }
+    // printf("stall_branch returning true!!\n");
     return true;
 }
 
@@ -89,7 +97,6 @@ uint64_t renamer::rename_rsrc(uint64_t log_reg)
 
 uint64_t renamer::rename_rdst(uint64_t log_reg)
 {
-    //TODO: Might need to add functionality here. ie return a new physical destination register from the free list and update the mappings in the RMT
     uint64_t phys_reg = freelist->pop();
     prf_bit_array[phys_reg]=0;
     rmt[log_reg]=phys_reg;
@@ -99,24 +106,36 @@ uint64_t renamer::rename_rdst(uint64_t log_reg)
 uint64_t renamer::checkpoint()
 {
     uint64_t branch_id = -1;
+    uint64_t temp_debug = GBM;
+    // if(GBM>=(uint64_t)0x00FFFFFFFFFFFFFF)
+    // {
+    //     printf("GBM inside checkpoint is %016llX\n",GBM);
+    // }
     //find free branch
     for(uint64_t i=0;i<unresolved_branch_limit;i++)
     {
         uint64_t mask = 1<<i;
-        if(mask & GBM == 0)
+        // printf("mask: %016llX\n",mask);
+        // printf("mask& GBM: %016llX\n",mask & GBM);
+        if((mask&GBM) == (uint64_t)0)
         {
             branch_id=i;
             GBM = GBM | mask;
             break;
         }
+    }    
+    // printf("Unresolved branch limit: %"PRIu64"\n",unresolved_branch_limit);
+    
+    if(branch_id==-1)
+    {
+        printf("GBM: %016llX\n",temp_debug);
     }
     assert(branch_id!=-1 && "No free branches, user must call stall_branch");
-    for(int i=0;i<fl_size;i++)
-    {
-        checkpoints[branch_id]->smt[i]=rmt[i];
-    }
+    // printf("BranchId: %"PRIu64"\n",branch_id);
+    copy_map(rmt,checkpoints[branch_id]->smt);    
     checkpoints[branch_id]->fl_head_checkpoint=freelist->get_head();
     checkpoints[branch_id]->GBM_checkpoint = GBM;
+    // printf("Done with checkpoint function\n");
     return branch_id;
 }
 
@@ -124,10 +143,12 @@ bool renamer::stall_dispatch(uint64_t bundle_inst)
 {
     if(activelist->get_free_entries()>=bundle_inst)
     {
+        //printf("Stall dispatch false\n");
         return false;
     }
     else
     {
+        // printf("Stall dispatch true\n");
         return true;
     }
     
@@ -144,19 +165,26 @@ uint64_t renamer::dispatch_inst(bool dest_valid,
 	                       uint64_t PC)
 {
     assert(!activelist->is_full() &&"Active list is full, user must check active list before calling dispatch");    
+    // printf("Entering dispatch_instr\n");
     ALEntry rec;
     if(dest_valid)
-    {
-        rec.has_destination=true;
+    {        
         rec.lrn = log_reg;
         rec.prn = phys_reg;
     }
+    rec.has_destination=dest_valid;
     rec.is_load=load;
     rec.is_store = store;
     rec.is_branch = branch;
     rec.is_amo = amo;
     rec.is_csr = csr;
     rec.pc = PC;
+    rec.is_completed=false;
+    rec.has_exception=false;
+    rec.has_load_violation=false;
+    rec.is_branch_mispredict=false;
+    rec.is_value_mispredict=false;
+    // printf("Done with instruction dispatch!!\n");
     return activelist->insert(rec);     
 }
 
@@ -177,6 +205,7 @@ void renamer::set_ready(uint64_t phys_reg)
 
 uint64_t renamer::read(uint64_t phys_reg)
 {
+    //printf("Reading prf\n");
     return prf[phys_reg];
 }
 
@@ -187,6 +216,7 @@ void renamer::write(uint64_t phys_reg, uint64_t value)
 
 void renamer::set_complete(uint64_t AL_index)
 {
+    // printf("set_complete called!!\n");
     activelist->set_complete(AL_index);
 }
 
@@ -194,6 +224,7 @@ void renamer::resolve(uint64_t AL_index,
 		     uint64_t branch_ID,
 		     bool correct)
 {
+    // printf("Entering resolve function\n");
     uint64_t mask = 1<<branch_ID;
     if(correct)
     {        
@@ -212,7 +243,8 @@ void renamer::resolve(uint64_t AL_index,
         //head of freelist
         freelist->sethead(checkpoints[branch_ID]->fl_head_checkpoint);
         copy_map(checkpoints[branch_ID]->smt,rmt);
-    }    
+    } 
+    // printf("Done with resolve function\n");   
 }
 
 bool renamer::precommit(bool &completed,
@@ -220,6 +252,7 @@ bool renamer::precommit(bool &completed,
 	               bool &load, bool &store, bool &branch, bool &amo, bool &csr,
 		       uint64_t &PC)
 {
+    //printf("Entering precommit function\n");
     ALEntry rec = activelist->peek();
     completed=rec.is_completed;
     exception=rec.has_exception;
@@ -232,23 +265,35 @@ bool renamer::precommit(bool &completed,
     amo = rec.is_amo;
     csr = rec.is_csr;
     PC = rec.pc;
-    return activelist->is_not_empty();
+    bool ret_value = activelist->is_not_empty();
+    // if(ret_value)
+    // {
+    //     printf("inside precommit with non empty queue");
+    // }
+    //printf("Done with precommit function!!\n");
+    return ret_value;
 }
 
 void renamer::commit()
 {
+    // printf("Entering commit function\n");
+    assert(activelist->is_not_empty());
     ALEntry rec = activelist->pop();
-    assert(activelist->is_not_empty() && rec.is_completed && !rec.has_exception && !rec.has_load_violation);
+    // printf("rec: %"PRIu64"\n",rec.pc);
+    assert(rec.is_completed && !rec.has_exception && !rec.has_load_violation);
     if(rec.has_destination)
     {
+        // printf("lrn: %"PRIu64"\n",rec.lrn);
         uint64_t free_pr_entry = amt[rec.lrn];
         amt[rec.lrn]=rec.prn;
         freelist->push(free_pr_entry);
     }
+    // printf("Done with commit function!!\n");
 }
 
 void renamer::squash()
 {
+    // printf("Starting squash function\n");
     //walk back through active list and add valid destinations into free_list
     //move tail in active list back to head
     //copy amt values into rmt
@@ -261,7 +306,8 @@ void renamer::squash()
         amt[i]=i;
     }
     freelist->reset();
-    copy_map(amt,rmt);    
+    copy_map(amt,rmt);  
+    // printf("Exiting squash function!!\n");  
 }
 
 void renamer::set_exception(uint64_t AL_index)
