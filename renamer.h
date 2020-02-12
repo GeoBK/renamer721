@@ -20,18 +20,18 @@ class FreeList{
 		this->fl_size=fl_size;
 		this->lrf_size=lrf_size;
 		head=0;
-		tail=fl_size-1;
+		tail=0;
         is_empty = false;
     }
 	uint64_t get_head(){
 		return head;
 	}
     uint64_t get_freeregisters(){
-        if(head-tail<0)
+        if((int)(head-tail)<0)
         {
             return tail-head;
         }
-        else if(head-tail>0)
+        else if((int)(head-tail)>0)
         {
             return fl_size-(head-tail);
         }
@@ -39,17 +39,24 @@ class FreeList{
         {
             if(is_empty)
             {
-                return fl_size;
+                return 0;
             }
             else
             {
-                return 0;
+                return fl_size;
             }
             
         }        
     }
 	void sethead(uint64_t index){
 		head=index;
+	}
+	void set_notempty(){
+		is_empty=false;
+	}
+	void resetheadtotail(){
+		head=tail;
+		is_empty=false;
 	}
 	void push(uint64_t free_reg)
 	{
@@ -62,16 +69,18 @@ class FreeList{
 		}
 		is_empty=false;
 	}
-	void reset(){
-		is_empty=false;
-		uint64_t free_prf=lrf_size-1;
-		for(int i=0;i<fl_size;i++)
-		{
-			free_list[i]=free_prf++;
-		}
-	}
+	// void reset(){
+	// 	is_empty=false;
+	// 	uint64_t free_prf=lrf_size-1;
+	// 	for(int i=0;i<fl_size;i++)
+	// 	{
+	// 		free_list[i]=free_prf++;
+	// 	}
+	// }
 	uint64_t pop(){
-		assert(!is_empty);
+		// printf("Inside pop - head: %"PRIu64", tail: %"PRIu64", is_empty: %d\n",head,tail,is_empty);
+		assert(!is_empty); 
+
 		uint64_t free_reg=free_list[head++];
 		if(head==fl_size)
 		{
@@ -79,6 +88,7 @@ class FreeList{
 		}
 		if(head==tail)
 		{
+			// printf("Inside pop and is_empty=true\n");
 			is_empty=true;
 		}
 		return free_reg;
@@ -122,11 +132,11 @@ class ActiveList{
         delete[] active_list;
     }
 	uint64_t get_free_entries(){
-        if(head-tail<0)
+        if((int)(head-tail)<0)
         {
-            return head-tail+al_size;
+            return al_size - (tail-head);
         }
-        else if(head-tail>0)
+        else if((int)(head-tail)>0)
         {
             return head-tail;
         }
@@ -182,7 +192,13 @@ class ActiveList{
 
 	void settail(uint64_t index)
 	{
-		tail = index;
+		if(index==al_size){
+			tail=0;
+		}
+		else
+		{
+			tail = index;	
+		}		
 	}
 
 	bool is_not_empty(){
@@ -205,8 +221,29 @@ class ActiveList{
 		return active_list[curr];
 	}
 	void clear(){
-		head=tail=0;
+		// printf("Inside clear function\n");
+		// printf("head: %"PRIu64", tail: %"PRIu64", is_empty: %d\n",head,tail,is_empty);
+		uint64_t freed =0;
+		head=tail;
 		is_empty=true;
+		// for(;tail!=head || !is_empty;)
+		// {
+		// 	is_empty=true;			
+		// 	if(active_list[head].has_destination)
+		// 	{				
+		// 		// printf("free registers in freelist: %"PRIu64"\n",freelist->get_freeregisters());
+		// 		freed++;
+		// 		freelist->push(active_list[head].prn);
+		// 	}
+		// 	head++;
+		// 	if(head==al_size)
+		// 	{
+		// 		head=0;
+		// 	}
+		// }
+		// printf("head: %"PRIu64", tail: %"PRIu64", is_empty: %d, freed registers: %d\n",head,tail,is_empty);
+		// printf("free registers in freelist: %"PRIu64"\n",freelist->get_freeregisters());
+		
 	}
 	void set_exception(uint64_t index)
 	{
